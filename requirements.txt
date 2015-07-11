@@ -1,0 +1,2 @@
+https://github.com/offscale/offutils/archive/master.zip#egg=offutils
+https://github.com/offscale/offconf/archive/master.zip#egg=offconf
