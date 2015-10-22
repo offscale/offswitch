@@ -1,16 +1,23 @@
+from os import name as os_name, environ
 from json import loads
-from itertools import ifilter, imap, chain
+from itertools import imap, chain
 from urlparse import urlparse
 
+from libcloud import security
 from libcloud.compute.types import Provider
 from libcloud.compute.providers import get_driver
 
 from etcd import Client
 
 from offconf import replace_variables
-from offutils import pp
 
 from __init__ import logger
+
+if environ.get('enable_ssl', False):
+    security.VERIFY_SSL_CERT = True
+elif os_name == 'nt' or environ.get('disable_ssl'):
+    # AWS Certificates are acting up (on Windows), remove this in production:
+    security.VERIFY_SSL_CERT = False
 
 
 def destroy(config_filename):
