@@ -12,9 +12,11 @@ def _build_parser():
     parser = ArgumentParser(description='Destroy compute nodes')
     parser.add_argument('-s', '--strategy', help='strategy file [strategy.sample.json]',
                         default=resource_filename('offswitch.config', 'providers.sample.json'))
+    parser.add_argument('-p', '--provider', help='Only switch off this provider. Can be specified repetitively.',
+                        action='append')
     return parser
 
 
 if __name__ == '__main__':
     args = _build_parser().parse_args()
-    destroy(args.strategy)
+    destroy(args.strategy, args.provider)
