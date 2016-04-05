@@ -28,13 +28,13 @@ def destroy(config_filename, providers=None):
                                           if obj.keys()[0] in providers) if providers else config['options']
 
     client = (lambda etcd_server_location: Client(
-            protocol=etcd_server_location.scheme, host=etcd_server_location.hostname, port=etcd_server_location.port
+        protocol=etcd_server_location.scheme, host=etcd_server_location.hostname, port=etcd_server_location.port
     ))(urlparse(config['etcd_server']))
     logger.info(
-            'Dropping from provider: {}'.format(
-                    tuple(chain(*tuple(imap(lambda provider: destroy_nodes(client, to_driver_obj(provider)),
-                                            config['provider']['options']))))
-            )
+        'Dropping from provider: {}'.format(
+            tuple(chain(*tuple(imap(lambda provider: destroy_nodes(client, to_driver_obj(provider)),
+                                    config['provider']['options']))))
+        )
     )
     return client
 
@@ -56,9 +56,10 @@ def etcd_filter(client, node_name, directory='/'):
 
 
 to_driver_obj = lambda provider: (lambda provider_name: get_driver(
-        getattr(Provider, provider_name)
+    getattr(Provider, provider_name)
 )(*provider[provider_name]['auth'].values()))(provider.keys()[0])
 
-destroy_nodes = lambda client, driver_obj: tuple(
-        imap(lambda node: {node.name: rm_prov_etcd(client, node)}, driver_obj.list_nodes())
+destroy_nodes = lambda client, driver_obj, cloud_name=environ.get('AZURE_CLOUD_NAME'): tuple(
+    imap(lambda node: {node.name: rm_prov_etcd(client, node)},
+         driver_obj.list_nodes(*(tuple() if not cloud_name else (cloud_name,))))
 )
