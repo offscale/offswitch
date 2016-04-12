@@ -1,11 +1,11 @@
 from os import name as os_name, environ
 from json import loads
-from itertools import imap, chain
+from itertools import imap, chain, groupby
 from urlparse import urlparse
 
 from libcloud import security
 from libcloud.compute.types import Provider
-from libcloud.compute.providers import get_driver
+from libcloud.compute.providers import get_driver, DRIVERS
 
 from etcd import Client
 
@@ -20,22 +20,54 @@ elif os_name == 'nt' or environ.get('disable_ssl'):
     security.VERIFY_SSL_CERT = False
 
 
-def destroy(config_filename, providers=None):
+def destroy(config_filename, restrict_provider_to=None):
     with open(config_filename, 'rt') as f:
-        config = replace_variables(f.read())
-    config = loads(config)
-    config['provider']['options'] = tuple(obj for obj in config['provider']['options']
-                                          if obj.keys()[0] in providers) if providers else config['options']
+        config_contents = f.read()
+
+    config_dict = loads(replace_variables(config_contents))
+    del config_contents
+    providers = tuple(obj for obj in config_dict['provider']['options']
+                      if obj['provider']['name'] in restrict_provider_to
+                      or obj['provider']['name'] == restrict_provider_to) if restrict_provider_to \
+        else tuple(obj for obj in config_dict['provider']['options'])
 
     client = (lambda etcd_server_location: Client(
-        protocol=etcd_server_location.scheme, host=etcd_server_location.hostname, port=etcd_server_location.port
-    ))(urlparse(config['etcd_server']))
-    logger.info(
-        'Dropping from provider: {}'.format(
-            tuple(chain(*tuple(imap(lambda provider: destroy_nodes(client, to_driver_obj(provider)),
-                                    config['provider']['options']))))
-        )
-    )
+        protocol=etcd_server_location.scheme,
+        host=etcd_server_location.hostname,
+        port=etcd_server_location.port
+    ))(urlparse(config_dict['etcd_server']))
+
+    driver_names = {
+        driver_name.upper(): driver_tuple[1] for driver_name, driver_tuple in DRIVERS.iteritems()
+        for provider in providers
+        if driver_tuple[1].upper().startswith(provider['provider']['name'])}
+
+    # Map nodes to their provider, including ones outside etcd
+    provider2nodes = {
+        key: tuple(val) for key, val in {
+        k: v for k, v in groupby(
+        (
+            node for node in (loads(client.get(j).value)
+                              for c in etcd_ls(client) for j in c)
+            if node['state'] == 'running'
+        ), lambda x: x['driver'])
+        if next((True for val in driver_names.itervalues() if val == k), None)
+        }.iteritems()}
+
+    # Filter to just ones we have auth details for
+    filtered_providers = (provider for provider in providers
+                          if driver_names[provider['provider']['name']] in provider2nodes)
+
+    # Filter to just ones inside etcd; then deprovision and delete from etcd
+    logger.info('Dropped: {}'.format(
+        {
+            provider['provider']['name']: rm_prov_etcd(client, n)
+            for provider in filtered_providers
+            for n in to_driver_obj(provider).list_nodes()
+            if next((n.uuid == node['uuid']
+                     for node in provider2nodes[driver_names[provider['provider']['name']]]), None)
+            }
+    ))
     return client
 
 
@@ -57,9 +89,11 @@ def etcd_filter(client, node_name, directory='/'):
 
 to_driver_obj = lambda provider: (lambda provider_name: get_driver(
     getattr(Provider, provider_name)
-)(*provider[provider_name]['auth'].values()))(provider.keys()[0])
+)(*provider['auth'].values()))(provider['provider']['name'])
 
 destroy_nodes = lambda client, driver_obj, cloud_name=environ.get('AZURE_CLOUD_NAME'): tuple(
-    imap(lambda node: {node.name: rm_prov_etcd(client, node)},
-         driver_obj.list_nodes(*(tuple() if not cloud_name else (cloud_name,))))
+    {node.name: rm_prov_etcd(client, node)}
+    for node in driver_obj.list_nodes(
+        *(tuple() if not cloud_name else (cloud_name,))
+    )
 )
