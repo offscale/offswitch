@@ -51,7 +51,8 @@
         },
         "provider": {
           "name": "AZURE",
-          "region": "Australia East"
+          "region": "Australia East",
+          "cloud_name": "${env.AZURE_CLOUD_NAME}"
         }
       }
     ]

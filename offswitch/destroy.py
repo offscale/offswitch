@@ -1,7 +1,8 @@
 from os import name as os_name, environ
 from json import loads
-from itertools import imap, chain, groupby
+from itertools import imap, chain
 from urlparse import urlparse
+from collections import namedtuple
 
 from libcloud import security
 from libcloud.compute.types import Provider
@@ -26,6 +27,7 @@ def destroy(config_filename, restrict_provider_to=None):
 
     config_dict = loads(replace_variables(config_contents))
     del config_contents
+
     providers = tuple(obj for obj in config_dict['provider']['options']
                       if obj['provider']['name'] in restrict_provider_to
                       or obj['provider']['name'] == restrict_provider_to) if restrict_provider_to \
@@ -37,37 +39,42 @@ def destroy(config_filename, restrict_provider_to=None):
         port=etcd_server_location.port
     ))(urlparse(config_dict['etcd_server']))
 
-    driver_names = {
-        driver_name.upper(): driver_tuple[1] for driver_name, driver_tuple in DRIVERS.iteritems()
-        for provider in providers
-        if driver_tuple[1].upper().startswith(provider['provider']['name'])}
+    provider2conf_and_driver = dict(
+        imap(lambda provider_dict: (provider_dict['provider']['name'],
+                                    namedtuple('_', 'dict driver')(provider_dict, (lambda provider_cls: provider_cls(
+                                        subscription_id=provider_dict['auth']['subscription_id'],
+                                        key_file=provider_dict['auth']['key_file']
+                                    ) if provider_dict['provider']['name'] == 'AZURE' else provider_cls(
+                                        provider_dict['auth']['username'],
+                                        provider_dict['auth']['key'],
+                                        region=provider_dict['provider']['region']
+                                    ))(get_driver(getattr(Provider, provider_dict['provider']['name']))))), providers)
+    )
 
     # Map nodes to their provider, including ones outside etcd
     provider2nodes = {
-        key: tuple(val) for key, val in {
-        k: v for k, v in groupby(
-        (
-            node for node in (loads(client.get(j).value)
-                              for c in etcd_ls(client) for j in c)
-            if node['state'] == 'running'
-        ), lambda x: x['driver'])
-        if next((True for val in driver_names.itervalues() if val == k), None)
-        }.iteritems()}
+        provider: tuple(
+            namedtuple('_', 'uuid node')(node.uuid, node) for node in
+            driver.driver.list_nodes(*(tuple() if not driver.dict['provider'].get('cloud_name')
+                                       else (driver.dict['provider']['cloud_name'],)))
+            if node.state in (driver.driver.NODE_STATE_MAP['pending'],
+                              driver.driver.NODE_STATE_MAP['running']))
+        for provider, driver in provider2conf_and_driver.iteritems()}
 
-    # Filter to just ones we have auth details for
-    filtered_providers = (provider for provider in providers
-                          if driver_names[provider['provider']['name']] in provider2nodes)
+    uuid2key = {loads(client.get(key).value)['uuid']: key
+                for directory in etcd_ls(client)
+                for key in directory}
 
     # Filter to just ones inside etcd; then deprovision and delete from etcd
     logger.info('Dropped: {}'.format(
         {
-            provider['provider']['name']: rm_prov_etcd(client, n)
-            for provider in filtered_providers
-            for n in to_driver_obj(provider).list_nodes()
-            if next((n.uuid == node['uuid']
-                     for node in provider2nodes[driver_names[provider['provider']['name']]]), None)
+            provider: tuple(imap(lambda n: rm_prov_etcd(client, n.node), nodes))
+            for provider, nodes in provider2nodes.iteritems()
+            for node in nodes
+            if node.uuid in uuid2key
             }
     ))
+
     return client
 
 
