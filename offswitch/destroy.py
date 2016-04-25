@@ -58,8 +58,17 @@ def destroy(config_filename, restrict_provider_to=None):
             namedtuple('_', 'uuid node')(node.uuid, node) for node in
             driver.driver.list_nodes(*(tuple() if not driver.dict['provider'].get('cloud_name')
                                        else (driver.dict['provider']['cloud_name'],)))
-            if node.state in (driver.driver.NODE_STATE_MAP['pending'],
-                              driver.driver.NODE_STATE_MAP['running']))
+            if driver.driver.NODE_STATE_MAP and node.state in (
+                driver.driver.NODE_STATE_MAP.get('pending',
+                                                 driver.driver.NODE_STATE_MAP.keys()[
+                                                     driver.driver.NODE_STATE_MAP.values().index('pending')
+                                                 ]),
+                driver.driver.NODE_STATE_MAP.get('running',
+                                                 driver.driver.NODE_STATE_MAP.keys()[
+                                                     driver.driver.NODE_STATE_MAP.values().index('running')
+                                                 ])
+            ) or not driver.driver.NODE_STATE_MAP and node.state in ('pending', 'running')
+        )
         for provider, driver in provider2conf_and_driver.iteritems()}
 
     uuid2key = {loads(client.get(key).value)['uuid']: key
