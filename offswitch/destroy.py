@@ -11,6 +11,7 @@ from libcloud.compute.providers import get_driver, DRIVERS
 from etcd import Client
 
 from offconf import replace_variables
+from offutils import flatten, it_consumes
 
 from __init__ import logger
 
@@ -63,7 +64,8 @@ def destroy(config_filename, restrict_provider_to=None):
 
     uuid2key = {loads(client.get(key).value)['uuid']: key
                 for directory in etcd_ls(client)
-                for key in directory}
+                for key in directory
+                if isinstance(key, basestring)}
 
     # Filter to just ones inside etcd; then deprovision and delete from etcd
     logger.info('Dropped: {}'.format(
@@ -74,6 +76,13 @@ def destroy(config_filename, restrict_provider_to=None):
             if node.uuid in uuid2key
             }
     ))
+
+    # Delete all empty etcd directories.
+    for i in xrange(20):  # TODO: walk the tree rather than hackily rerun
+        it_consumes(
+            logger.info('rmdir {directory}'.format(directory=directory, res=client.delete(directory, dir=True)))
+            for directory in flatten(etcd_empty_dirs(client))
+        )
 
     return client
 
@@ -87,6 +96,14 @@ def rm_prov_etcd(client, node):
 def etcd_ls(client, directory='/'):
     return tuple(imap(lambda child: etcd_ls(client, child['key']) if child.get('dir') else child['key'],
                       client.get(directory)._children))
+
+
+def etcd_empty_dirs(client, directory='/'):
+    return (
+        child['key'] if not client.get(child['key'])._children else etcd_empty_dirs(client, child['key'])
+        for child in client.get(directory)._children
+        if child.get('dir')
+    )
 
 
 def etcd_filter(client, node_name, directory='/'):
