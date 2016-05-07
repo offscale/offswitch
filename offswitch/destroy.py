@@ -1,8 +1,9 @@
 from os import name as os_name, environ
 from json import loads
-from itertools import imap, chain
+from itertools import imap, ifilter, chain
 from urlparse import urlparse
 from collections import namedtuple
+from operator import itemgetter
 
 from libcloud import security
 from libcloud.compute.types import Provider
@@ -11,7 +12,7 @@ from libcloud.compute.providers import get_driver, DRIVERS
 from etcd import Client
 
 from offconf import replace_variables
-from offutils import flatten, it_consumes
+from offutils import flatten, it_consumes, pp
 
 from __init__ import logger
 
@@ -43,13 +44,17 @@ def destroy(config_filename, restrict_provider_to=None):
     provider2conf_and_driver = dict(
         imap(lambda provider_dict: (provider_dict['provider']['name'],
                                     namedtuple('_', 'dict driver')(provider_dict, (lambda provider_cls: provider_cls(
-                                        subscription_id=provider_dict['auth']['subscription_id'],
-                                        key_file=provider_dict['auth']['key_file']
-                                    ) if provider_dict['provider']['name'] == 'AZURE' else provider_cls(
-                                        provider_dict['auth']['username'],
-                                        provider_dict['auth']['key'],
-                                        region=provider_dict['provider']['region']
-                                    ))(get_driver(getattr(Provider, provider_dict['provider']['name']))))), providers)
+                                        region=provider_dict['provider']['region'],
+                                        **provider_dict['auth']
+                                    ))(get_driver(
+                                        getattr(Provider, provider_dict['provider']['name'])
+                                        if hasattr(Provider, provider_dict['provider']['name'])
+                                        else itemgetter(1)(
+                                            next(ifilter(lambda (prov_name, value): value == 'DIGITALOCEAN'.lower(),
+                                                         imap(lambda prov_name: (
+                                                             prov_name, getattr(Provider, prov_name)), dir(Provider))
+                                                         )))
+                                    )))), providers)
     )
 
     # Map nodes to their provider, including ones outside etcd
@@ -59,15 +64,11 @@ def destroy(config_filename, restrict_provider_to=None):
             driver.driver.list_nodes(*(tuple() if not driver.dict['provider'].get('cloud_name')
                                        else (driver.dict['provider']['cloud_name'],)))
             if driver.driver.NODE_STATE_MAP and node.state in (
-                driver.driver.NODE_STATE_MAP.get('pending',
-                                                 driver.driver.NODE_STATE_MAP.keys()[
-                                                     driver.driver.NODE_STATE_MAP.values().index('pending')
-                                                 ]),
                 driver.driver.NODE_STATE_MAP.get('running',
                                                  driver.driver.NODE_STATE_MAP.keys()[
                                                      driver.driver.NODE_STATE_MAP.values().index('running')
-                                                 ])
-            ) or not driver.driver.NODE_STATE_MAP and node.state in ('pending', 'running')
+                                                 ]),
+            ) or not driver.driver.NODE_STATE_MAP and node.state in ('running',)
         )
         for provider, driver in provider2conf_and_driver.iteritems()}
 
