@@ -1,4 +1,4 @@
-from os import name as os_name, environ
+from os import environ
 from json import loads
 from itertools import imap, ifilter, chain
 from urlparse import urlparse
@@ -7,7 +7,7 @@ from operator import itemgetter
 
 from libcloud import security
 from libcloud.compute.types import Provider
-from libcloud.compute.providers import get_driver, DRIVERS
+from libcloud.compute.providers import get_driver
 
 from etcd import Client
 
@@ -18,8 +18,7 @@ from __init__ import logger
 
 if environ.get('enable_ssl', False):
     security.VERIFY_SSL_CERT = True
-elif os_name == 'nt' or environ.get('disable_ssl'):
-    # AWS Certificates are acting up (on Windows), remove this in production:
+elif environ.get('disable_ssl'):
     security.VERIFY_SSL_CERT = False
 
 
@@ -43,32 +42,39 @@ def destroy(config_filename, restrict_provider_to=None):
 
     provider2conf_and_driver = dict(
         imap(lambda provider_dict: (provider_dict['provider']['name'],
-                                    namedtuple('_', 'dict driver')(provider_dict, (lambda provider_cls: provider_cls(
-                                        region=provider_dict['provider']['region'],
-                                        **provider_dict['auth']
-                                    ))(get_driver(
-                                        getattr(Provider, provider_dict['provider']['name'])
-                                        if hasattr(Provider, provider_dict['provider']['name'])
-                                        else itemgetter(1)(
-                                            next(ifilter(lambda (prov_name, value): value == 'DIGITALOCEAN'.lower(),
-                                                         imap(lambda prov_name: (
-                                                             prov_name, getattr(Provider, prov_name)), dir(Provider))
-                                                         )))
-                                    )))), providers)
+                                    namedtuple('_', 'conf driver_cls')(
+                                        provider_dict,
+                                        (lambda provider_cls: provider_cls(
+                                            region=provider_dict['provider']['region'],
+                                            **provider_dict['auth']
+                                        ))(get_driver(
+                                            getattr(Provider, provider_dict['provider']['name'])
+                                            if hasattr(Provider, provider_dict['provider']['name'])
+                                            else itemgetter(1)(next(ifilter(
+                                                lambda (prov_name, value): value == provider_dict['provider'][
+                                                    'name'].lower(),
+                                                imap(lambda prov_name: (prov_name, getattr(Provider, prov_name)),
+                                                     dir(Provider))
+                                            )))
+                                        )))), providers)
     )
 
     # Map nodes to their provider, including ones outside etcd
     provider2nodes = {
         provider: tuple(
             namedtuple('_', 'uuid node')(node.uuid, node) for node in
-            driver.driver.list_nodes(*(tuple() if not driver.dict['provider'].get('cloud_name')
-                                       else (driver.dict['provider']['cloud_name'],)))
-            if driver.driver.NODE_STATE_MAP and node.state in (
-                driver.driver.NODE_STATE_MAP.get('running',
-                                                 driver.driver.NODE_STATE_MAP.keys()[
-                                                     driver.driver.NODE_STATE_MAP.values().index('running')
-                                                 ]),
-            ) or not driver.driver.NODE_STATE_MAP and node.state in ('running',)
+            driver.driver_cls.list_nodes(*((driver.conf['create_with']['ex_cloud_service_name'],)
+                                           if driver.conf['provider']['name'] == 'AZURE'
+                                           else tuple()
+                                           ))
+            if driver.driver_cls.NODE_STATE_MAP and node.state in (
+                driver.driver_cls.NODE_STATE_MAP.get(
+                    'running',
+                    next((node.state for k, v in driver.driver_cls.NODE_STATE_MAP.iteritems()
+                          if 'running' in v), None)
+                ),
+                driver.driver_cls.NODE_STATE_MAP.get('active')
+            ) or not driver.driver_cls.NODE_STATE_MAP and node.state in ('running',)
         )
         for provider, driver in provider2conf_and_driver.iteritems()}
 
@@ -124,10 +130,3 @@ def etcd_filter(client, node_name, directory='/'):
 to_driver_obj = lambda provider: (lambda provider_name: get_driver(
     getattr(Provider, provider_name)
 )(*provider['auth'].values()))(provider['provider']['name'])
-
-destroy_nodes = lambda client, driver_obj, cloud_name=environ.get('AZURE_CLOUD_NAME'): tuple(
-    {node.name: rm_prov_etcd(client, node)}
-    for node in driver_obj.list_nodes(
-        *(tuple() if not cloud_name else (cloud_name,))
-    )
-)
