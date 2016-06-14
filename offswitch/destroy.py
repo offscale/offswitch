@@ -79,9 +79,9 @@ def destroy(config_filename, restrict_provider_to=None):
         for provider, driver in provider2conf_and_driver.iteritems()}
 
     uuid2key = {loads(client.get(key).value)['uuid']: key
-                for directory in etcd_ls(client)
-                for key in directory
-                if isinstance(key, basestring)}
+                for key in flatten(etcd_ls(client))
+                if (lambda v: isinstance(v, basestring) and v.startswith('{'))(client.get(key).value)}
+    # TODO: Only call `client.get` once per `key` ^
 
     # Filter to just ones inside etcd; then deprovision and delete from etcd
     logger.info('Dropped: {}'.format(
@@ -123,7 +123,7 @@ def etcd_empty_dirs(client, directory='/'):
 
 
 def etcd_filter(client, node_name, directory='/'):
-    return filter(lambda key: key.encode('utf-8').endswith(node_name),
+    return filter(lambda key: isinstance(key, basestring) and key.encode('utf-8').endswith(node_name),
                   tuple(chain(*etcd_ls(client, directory=directory))))
 
 
