@@ -1,26 +1,24 @@
 from setuptools import setup, find_packages
+from os import path, listdir
 from functools import partial
 from itertools import imap, ifilter
-from os import path
 from ast import parse
-from pip import __file__ as pip_loc
+from distutils.sysconfig import get_python_lib
 
 if __name__ == '__main__':
     package_name = 'offswitch'
 
-    get_vals = lambda var0, var1: imap(lambda buf: next(imap(lambda e: e.value.s, parse(buf).body)),
-                                       ifilter(lambda line: line.startswith(var0) or line.startswith(var1), f))
-
     with open(path.join(package_name, '__init__.py')) as f:
-        __author__, __version__ = get_vals('__version__', '__author__')
+        __author__, __version__ = imap(
+            lambda buf: next(imap(lambda e: e.value.s, parse(buf).body)),
+            ifilter(lambda line: line.startswith('__version__') or line.startswith('__author__'), f)
+        )
 
-    f_for = lambda dir_name: partial(path.join, path.dirname(__file__), package_name, dir_name)
-    d_for = lambda dir_name: path.join(path.dirname(path.dirname(pip_loc)), package_name, dir_name)
+    to_funcs = lambda *paths: (partial(path.join, path.dirname(__file__), package_name, *paths),
+                               partial(path.join, get_python_lib(prefix=''), package_name, *paths))
 
-    config_join = f_for('config')
-    config_install_dir = d_for('config')
-    _data_join = f_for('_data')
-    _data_install_dir = d_for('_data')
+    _data_join, _data_install_dir = to_funcs('_data')
+    config_join, config_install_dir = to_funcs('config')
 
     setup(
         name=package_name,
@@ -31,7 +29,7 @@ if __name__ == '__main__':
         package_dir={package_name: package_name},
         install_requires=['apache-libcloud', 'python-etcd'],
         data_files=[
-            (config_install_dir, [config_join('providers.sample.json')]),
-            (_data_install_dir, [_data_join('logging.yml')])
+            (config_install_dir(), map(config_join, listdir(config_join()))),
+            (_data_install_dir(), map(_data_join, listdir(_data_join())))
         ]
     )
