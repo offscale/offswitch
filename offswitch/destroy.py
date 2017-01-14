@@ -88,21 +88,28 @@ def destroy(config_filename, restrict_provider_to=None):
                 if (lambda v: isinstance(v, basestring) and v.startswith('{'))(client.get(key).value)}
     # TODO: Only call `client.get` once per `key` ^
 
-    # Filter to just ones inside etcd; then deprovision and delete from etcd
+    # Filter to just ones inside etcd
     within_etcd = {
         provider: imap(lambda n: rm_prov_etcd(client, n.node), nodes)
         for provider, nodes in provider2nodes.iteritems()
         for node in nodes
         if node.uuid in uuid2key
         }
-    for provider, dl_op_iter in within_etcd:
+
+    # deprovision and delete from etcd
+    for provider, dl_op_iter in within_etcd.iteritems():
         logger.info('Deleting from {provider}'.format(provider=provider))
+
+        def _e(ee):
+            raise ee
+
         try:
             within_etcd[provider] = tuple(dl_op_iter)
         except LibcloudError as e:
+            print 'e.message {!r}'.format(e.message)
             (isinstance(e, SoftLayerException)
              and e.message == 'SoftLayer_Exception_NotFound: A billing item is required to process a cancellation.'
-             and logger.exception(e)) or raise_f(e)
+             and (logger.exception(e) or True)) or _e(e)
 
             # Delete all empty etcd directories.
     for i in xrange(20):  # TODO: walk the tree rather than hackily rerun
