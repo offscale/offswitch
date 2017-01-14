@@ -6,13 +6,15 @@ from collections import namedtuple
 from operator import itemgetter
 
 from libcloud import security
+from libcloud.common.softlayer import SoftLayerException
+from libcloud.common.types import InvalidCredsError, LibcloudError
 from libcloud.compute.types import Provider
 from libcloud.compute.providers import get_driver
 
 from etcd import Client
 
 from offconf import replace_variables
-from offutils import flatten, it_consumes, pp
+from offutils import flatten, it_consumes, pp, raise_f
 
 from __init__ import logger
 
@@ -60,23 +62,26 @@ def destroy(config_filename, restrict_provider_to=None):
     )
 
     # Map nodes to their provider, including ones outside etcd
-    provider2nodes = {
-        provider: tuple(
-            namedtuple('_', 'uuid node')(node.uuid, node) for node in
-            driver.driver_cls.list_nodes(*((driver.conf['create_with']['ex_cloud_service_name'],)
-                                           if driver.conf['provider']['name'] == 'AZURE'
-                                           else tuple()
-                                           ))
-            if driver.driver_cls.NODE_STATE_MAP and node.state in (
-                driver.driver_cls.NODE_STATE_MAP.get(
-                    'running',
-                    next((node.state for k, v in driver.driver_cls.NODE_STATE_MAP.iteritems()
-                          if 'running' in v), None)
-                ),
-                driver.driver_cls.NODE_STATE_MAP.get('active')
-            ) or not driver.driver_cls.NODE_STATE_MAP and node.state in ('running',)
-        )
-        for provider, driver in provider2conf_and_driver.iteritems()}
+    provider2nodes = {}
+    for provider, driver in provider2conf_and_driver.iteritems():
+        try:
+            provider2nodes[provider] = tuple(
+                namedtuple('_', 'uuid node')(node.uuid, node) for node in
+                driver.driver_cls.list_nodes(*((driver.conf['create_with']['ex_cloud_service_name'],)
+                                               if driver.conf['provider']['name'] == 'AZURE'
+                                               else tuple()
+                                               ))
+                if driver.driver_cls.NODE_STATE_MAP and node.state in (
+                    driver.driver_cls.NODE_STATE_MAP.get(
+                        'running',
+                        next((node.state for k, v in driver.driver_cls.NODE_STATE_MAP.iteritems()
+                              if 'running' in v), None)
+                    ),
+                    driver.driver_cls.NODE_STATE_MAP.get('active')
+                ) or not driver.driver_cls.NODE_STATE_MAP and node.state in ('running',)
+            )
+        except InvalidCredsError as e:
+            logger.exception(e)
 
     uuid2key = {loads(client.get(key).value)['uuid']: key
                 for key in flatten(etcd_ls(client))
@@ -84,16 +89,22 @@ def destroy(config_filename, restrict_provider_to=None):
     # TODO: Only call `client.get` once per `key` ^
 
     # Filter to just ones inside etcd; then deprovision and delete from etcd
-    logger.info('Dropped: {}'.format(
-        {
-            provider: tuple(imap(lambda n: rm_prov_etcd(client, n.node), nodes))
-            for provider, nodes in provider2nodes.iteritems()
-            for node in nodes
-            if node.uuid in uuid2key
-            }
-    ))
+    within_etcd = {
+        provider: imap(lambda n: rm_prov_etcd(client, n.node), nodes)
+        for provider, nodes in provider2nodes.iteritems()
+        for node in nodes
+        if node.uuid in uuid2key
+        }
+    for provider, dl_op_iter in within_etcd:
+        logger.info('Deleting from {provider}'.format(provider=provider))
+        try:
+            within_etcd[provider] = tuple(dl_op_iter)
+        except LibcloudError as e:
+            (isinstance(e, SoftLayerException)
+             and e.message == 'SoftLayer_Exception_NotFound: A billing item is required to process a cancellation.'
+             and logger.exception(e)) or raise_f(e)
 
-    # Delete all empty etcd directories.
+            # Delete all empty etcd directories.
     for i in xrange(20):  # TODO: walk the tree rather than hackily rerun
         it_consumes(
             logger.info('rmdir {directory}'.format(directory=directory, res=client.delete(directory, dir=True)))

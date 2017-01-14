@@ -4,6 +4,7 @@ from argparse import ArgumentParser
 from pkg_resources import resource_filename
 
 from destroy import destroy
+from offswitch import __version__
 
 config_join = partial(path.join, path.dirname(__file__), 'config')
 
@@ -14,6 +15,7 @@ def _build_parser():
                         default=resource_filename('offswitch.config', 'providers.sample.json'))
     parser.add_argument('-p', '--provider', help='Only switch off this provider. Can be specified repetitively.',
                         action='append')
+    parser.add_argument('--version', action='version', version='%(prog)s {}'.format(__version__))
     return parser
 
 
