@@ -1,0 +1,18 @@
+{
+  "name": "Vagrant",
+  "description": "Vagrant providers config",
+  "version": "0.12.0",
+  "provider": {
+    "options": [
+      {
+        "provider": {
+          "name": "VAGRANT",
+          "ex_vagrantfile": "/mnt/large_linux/vagrant/edx-fullstack/Vagrantfile",
+          "key": "/mnt/large_linux/vagrant/edx-fullstack/Vagrantfile"
+        }
+      }
+    ]
+  },
+  "etcd_server": "http://localhost:2379",
+  "default_pick": "first"
+}

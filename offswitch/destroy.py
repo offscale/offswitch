@@ -1,6 +1,7 @@
 from os import environ
 from json import loads
-from itertools import imap, ifilter, chain
+from itertools import imap, ifilter, chain, groupby
+from sys import stderr
 from urlparse import urlparse
 from collections import namedtuple
 from operator import itemgetter
@@ -15,6 +16,7 @@ from etcd import Client
 
 from offconf import replace_variables
 from offutils import flatten, it_consumes, pp, raise_f
+from offutils_strategy_register import node_to_dict, dict_to_node
 
 from __init__ import logger
 
@@ -24,7 +26,7 @@ elif environ.get('disable_ssl'):
     security.VERIFY_SSL_CERT = False
 
 
-def destroy(config_filename, restrict_provider_to=None):
+def destroy(config_filename, restrict_provider_to=None, delete_only=None):
     with open(config_filename, 'rt') as f:
         config_contents = f.read()
 
@@ -46,10 +48,11 @@ def destroy(config_filename, restrict_provider_to=None):
         imap(lambda provider_dict: (provider_dict['provider']['name'],
                                     namedtuple('_', 'conf driver_cls')(
                                         provider_dict,
-                                        (lambda provider_cls: provider_cls(
-                                            region=provider_dict['provider']['region'],
-                                            **provider_dict['auth']
-                                        ))(get_driver(
+                                        (lambda provider_cls: provider_cls(region=provider_dict['provider']['region'],
+                                                                           **provider_dict['auth'])
+                                        if 'region' in provider_dict['provider'] else provider_cls(
+                                            **provider_dict['provider'])
+                                         )(get_driver(
                                             getattr(Provider, provider_dict['provider']['name'])
                                             if hasattr(Provider, provider_dict['provider']['name'])
                                             else itemgetter(1)(next(ifilter(
@@ -80,45 +83,90 @@ def destroy(config_filename, restrict_provider_to=None):
                     driver.driver_cls.NODE_STATE_MAP.get('active')
                 ) or not driver.driver_cls.NODE_STATE_MAP and node.state in ('running',)
             )
-        except InvalidCredsError as e:
+        except (InvalidCredsError, AttributeError) as e:
             logger.exception(e)
 
-    uuid2key = {loads(client.get(key).value)['uuid']: key
-                for key in flatten(etcd_ls(client))
-                if (lambda v: isinstance(v, basestring) and v.startswith('{'))(client.get(key).value)}
-    # TODO: Only call `client.get` once per `key` ^
+    print 'provider2nodes'
+    pp(provider2nodes)
 
+    uuid2keys = {}
+    name2node = {}
+    key2locs = {}
+    for key in flatten(etcd_ls(client)):
+        if (lambda v: isinstance(v, basestring) and v.startswith('{'))(client.get(key).value):
+            name = key.rpartition('/')[2]
+            node_d = loads(client.get(key).value)  # TODO: Only call `client.get` once per `key`
+            uuid = node_d['uuid']
+
+            if uuid in uuid2keys:
+                uuid2keys[uuid].add(key)
+                key2locs[name].add(key)
+            else:
+                uuid2keys[uuid] = {key}
+                key2locs[name] = {key}
+                # TODO: Fix missing _class on vagrant
+                '''print 'node_d'
+                pp(node_d)
+                name2node[name] = dict_to_node(dict(_class=node_d['driver'],
+                                                    driver_cls=node_d['driver'],
+                                                    **node_d))'''
+                name2node[name] = node_d
+
+    '''print 'uuid2key'
+    pp(uuid2keys)
+    print 'key2locs'
+    pp(key2locs)
+    print 'name2node'
+    pp(name2node)'''
+    if delete_only:
+        for name in delete_only:
+            try:
+                for key in key2locs[name]:
+                    client.delete(key)
+                    logger.info('rm {!s}'.format(key))
+            except KeyError as e:
+                logger.error('"{!s}" not found'.format(e.message))
+        remove_empty_dirs(client)
+        exit()
+
+    exit(1)
     # Filter to just ones inside etcd
     within_etcd = {
         provider: imap(lambda n: rm_prov_etcd(client, n.node), nodes)
         for provider, nodes in provider2nodes.iteritems()
         for node in nodes
-        if node.uuid in uuid2key
+        if node.uuid in uuid2keys
         }
+    print 'within_etcd'
+    pp(within_etcd)
 
     # deprovision and delete from etcd
     for provider, dl_op_iter in within_etcd.iteritems():
         logger.info('Deleting from {provider}'.format(provider=provider))
 
-        def _e(ee):
-            raise ee
-
         try:
             within_etcd[provider] = tuple(dl_op_iter)
+            print 'within_etcd[provider] =', within_etcd[provider]
         except LibcloudError as e:
             print 'e.message {!r}'.format(e.message)
             (isinstance(e, SoftLayerException)
              and e.message == 'SoftLayer_Exception_NotFound: A billing item is required to process a cancellation.'
-             and (logger.exception(e) or True)) or _e(e)
+             and (logger.exception(e) or True)) or raise_f(e)
 
-            # Delete all empty etcd directories.
+    print 'within_etcd =', within_etcd
+    # Delete all empty etcd directories.
+
+    remove_empty_dirs(client)
+
+    return client
+
+
+def remove_empty_dirs(client):
     for i in xrange(20):  # TODO: walk the tree rather than hackily rerun
         it_consumes(
             logger.info('rmdir {directory}'.format(directory=directory, res=client.delete(directory, dir=True)))
             for directory in flatten(etcd_empty_dirs(client))
         )
-
-    return client
 
 
 def rm_prov_etcd(client, node):
