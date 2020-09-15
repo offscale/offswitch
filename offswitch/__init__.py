@@ -7,12 +7,12 @@ from logging.config import dictConfig as _dictConfig
 
 from os import path
 
-__author__ = 'Samuel Marks'
-__version__ = '0.0.10-alpha'
+__author__ = "Samuel Marks"
+__version__ = "0.0.10-alpha"
 
 
 def _get_logger():
-    with open(path.join(path.dirname(__file__), '_data', 'logging.yml'), 'rt') as f:
+    with open(path.join(path.dirname(__file__), "_data", "logging.yml"), "rt") as f:
         data = yaml.load(f)
     _dictConfig(data)
     return logging.getLogger()
