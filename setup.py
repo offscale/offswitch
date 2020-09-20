@@ -43,7 +43,7 @@ if __name__ == "__main__":
         test_suite=package_name + ".tests",
         packages=find_packages(),
         package_dir={package_name: package_name},
-        install_requires=["apache-libcloud", "python-etcd"],
+        install_requires=["apache-libcloud", "etcd3"],
         data_files=[
             (config_install_dir(), list(map(config_join, listdir(config_join())))),
             (_data_install_dir(), list(map(_data_join, listdir(_data_join())))),

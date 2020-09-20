@@ -1,7 +1,6 @@
 from os import environ
 from json import loads
-from itertools import chain, groupby
-from sys import stderr
+from itertools import chain
 from urllib.parse import urlparse
 from collections import namedtuple
 from operator import itemgetter
@@ -12,15 +11,14 @@ from libcloud.common.types import InvalidCredsError, LibcloudError
 from libcloud.compute.types import Provider
 from libcloud.compute.providers import get_driver
 
-from etcd import Client
+import etcd3
 
 from offconf import replace_variables
 from offutils import flatten, it_consumes, pp, raise_f
-from offutils_strategy_register import node_to_dict, dict_to_node
 
 from .__init__ import logger
 
-if environ.get("enable_ssl", False):
+if environ.get("enable_ssl"):
     security.VERIFY_SSL_CERT = True
 elif environ.get("disable_ssl"):
     security.VERIFY_SSL_CERT = False
@@ -45,8 +43,8 @@ def destroy(config_filename, restrict_provider_to=None, delete_only=None):
     )
 
     client = (
-        lambda etcd_server_location: Client(
-            protocol=etcd_server_location.scheme,
+        lambda etcd_server_location: etcd3.client(
+            # protocol=etcd_server_location.scheme,
             host=etcd_server_location.hostname,
             port=etcd_server_location.port,
         )
