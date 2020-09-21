@@ -1,9 +1,15 @@
 from os import environ
 from json import loads
 from itertools import chain
-from urllib.parse import urlparse
 from collections import namedtuple
 from operator import itemgetter
+from sys import version
+
+if version[0] == "2":
+    from itertools import imap as map, ifilter as filter
+    from urlparse import urlparse
+else:
+    from urllib.parse import urlparse
 
 from libcloud import security
 from libcloud.common.softlayer import SoftLayerException
