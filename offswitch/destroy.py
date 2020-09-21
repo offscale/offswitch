@@ -1,3 +1,5 @@
+from __future__ import print_function
+
 from os import environ
 from json import loads
 from itertools import chain
@@ -207,9 +209,9 @@ def destroy(config_filename, restrict_provider_to=None, delete_only=None):
 
         try:
             within_etcd[provider] = tuple(dl_op_iter)
-            print(("within_etcd[provider] =", within_etcd[provider]))
+            print("within_etcd[provider] =", within_etcd[provider])
         except LibcloudError as e:
-            print(("e.message {!r}".format(e.message)))
+            print("e.message {!r}".format(e.message))
             (
                 isinstance(e, SoftLayerException)
                 and e.message
@@ -217,7 +219,7 @@ def destroy(config_filename, restrict_provider_to=None, delete_only=None):
                 and (logger.exception(e) or True)
             ) or raise_f(e)
 
-    print(("within_etcd =", within_etcd))
+    print("within_etcd =", within_etcd)
     # Delete all empty etcd directories.
 
     remove_empty_dirs(client)
