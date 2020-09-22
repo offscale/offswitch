@@ -4,14 +4,18 @@ from os import environ
 from json import loads
 from itertools import chain
 from collections import namedtuple
-from operator import itemgetter
+from operator import itemgetter, methodcaller
 from sys import version
 
 if version[0] == "2":
     from itertools import imap as map, ifilter as filter
     from urlparse import urlparse
+
+    iteritems = methodcaller("iteritems")
 else:
     from urllib.parse import urlparse
+
+    iteritems = methodcaller("items")
 
 from libcloud import security
 from libcloud.common.softlayer import SoftLayerException
@@ -132,7 +136,7 @@ def destroy(config_filename, restrict_provider_to=None, delete_only=None):
                             (
                                 node.state
                                 for k, v in list(
-                                    driver.driver_cls.NODE_STATE_MAP.items()
+                                    iteritems(driver.driver_cls.NODE_STATE_MAP)
                                 )
                                 if "running" in v
                             ),
