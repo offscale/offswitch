@@ -7,15 +7,13 @@ from collections import namedtuple
 from operator import itemgetter, methodcaller
 from sys import version
 
+from offutils.util import iteritems, itervalues
+
 if version[0] == "2":
     from itertools import imap as map, ifilter as filter
     from urlparse import urlparse
-
-    iteritems = methodcaller("iteritems")
 else:
     from urllib.parse import urlparse
-
-    iteritems = methodcaller("items")
 
 from libcloud import security
 from libcloud.common.softlayer import SoftLayerException
@@ -63,60 +61,48 @@ def destroy(config_filename, restrict_provider_to=None, delete_only=None):
     )(urlparse(config_dict["etcd_server"]))
 
     provider2conf_and_driver = dict(
-        list(
-            map(
-                lambda provider_dict: (
-                    provider_dict["provider"]["name"],
-                    namedtuple("_", "conf driver_cls")(
-                        provider_dict,
-                        (
-                            lambda provider_cls: provider_cls(
-                                region=provider_dict["provider"]["region"],
-                                **provider_dict["auth"]
-                            )
-                            if "region" in provider_dict["provider"]
-                            else provider_cls(**provider_dict["provider"])
-                        )(
-                            get_driver(
-                                getattr(Provider, provider_dict["provider"]["name"])
-                                if hasattr(Provider, provider_dict["provider"]["name"])
-                                else itemgetter(1)(
-                                    next(
-                                        list(
-                                            filter(
-                                                lambda prov_name_value: prov_name_value[
-                                                    1
-                                                ]
-                                                == provider_dict["provider"][
-                                                    "name"
-                                                ].lower(),
-                                                list(
-                                                    map(
-                                                        lambda prov_name: (
-                                                            prov_name,
-                                                            getattr(
-                                                                Provider, prov_name
-                                                            ),
-                                                        ),
-                                                        dir(Provider),
-                                                    )
-                                                ),
-                                            )
-                                        )
+        map(
+            lambda provider_dict: (
+                provider_dict["provider"]["name"],
+                namedtuple("_", "conf driver_cls")(
+                    provider_dict,
+                    (
+                        lambda provider_cls: provider_cls(
+                            region=provider_dict["provider"]["region"],
+                            **provider_dict["auth"]
+                        )
+                        if "region" in provider_dict["provider"]
+                        else provider_cls(**provider_dict["provider"])
+                    )(
+                        get_driver(
+                            getattr(Provider, provider_dict["provider"]["name"])
+                            if hasattr(Provider, provider_dict["provider"]["name"])
+                            else itemgetter(1)(
+                                next(
+                                    filter(
+                                        lambda prov_name_value: prov_name_value[1]
+                                        == provider_dict["provider"]["name"].lower(),
+                                        map(
+                                            lambda prov_name: (
+                                                prov_name,
+                                                getattr(Provider, prov_name),
+                                            ),
+                                            dir(Provider),
+                                        ),
                                     )
                                 )
                             )
-                        ),
+                        )
                     ),
                 ),
-                providers,
-            )
+            ),
+            providers,
         )
     )
 
     # Map nodes to their provider, including ones outside etcd
     provider2nodes = {}
-    for provider, driver in list(provider2conf_and_driver.items()):
+    for provider, driver in iteritems(provider2conf_and_driver):
         try:
             provider2nodes[provider] = tuple(
                 namedtuple("_", "uuid node")(node.uuid, node)
@@ -135,9 +121,7 @@ def destroy(config_filename, restrict_provider_to=None, delete_only=None):
                         next(
                             (
                                 node.state
-                                for k, v in list(
-                                    iteritems(driver.driver_cls.NODE_STATE_MAP)
-                                )
+                                for k, v in iteritems(driver.driver_cls.NODE_STATE_MAP)
                                 if "running" in v
                             ),
                             None,
@@ -200,7 +184,7 @@ def destroy(config_filename, restrict_provider_to=None, delete_only=None):
     # Filter to just ones inside etcd
     within_etcd = {
         provider: [rm_prov_etcd(client, n.node) for n in nodes]
-        for provider, nodes in list(provider2nodes.items())
+        for provider, nodes in iteritems(provider2nodes)
         for node in nodes
         if node.uuid in uuid2keys
     }
@@ -208,7 +192,7 @@ def destroy(config_filename, restrict_provider_to=None, delete_only=None):
     pp(within_etcd)
 
     # deprovision and delete from etcd
-    for provider, dl_op_iter in list(within_etcd.items()):
+    for provider, dl_op_iter in iteritems(within_etcd):
         logger.info("Deleting from {provider}".format(provider=provider))
 
         try:
@@ -281,17 +265,14 @@ def etcd_empty_dirs(client, directory="/"):
 
 
 def etcd_filter(client, node_name, directory="/"):
-    return list(
-        filter(
-            lambda key: isinstance(key, str)
-            and key.encode("utf-8").endswith(node_name),
-            tuple(chain(*etcd_ls(client, directory=directory))),
-        )
+    return filter(
+        lambda key: isinstance(key, str) and key.encode("utf-8").endswith(node_name),
+        tuple(chain(*etcd_ls(client, directory=directory))),
     )
 
 
 to_driver_obj = lambda provider: (
     lambda provider_name: get_driver(getattr(Provider, provider_name))(
-        *list(provider["auth"].values())
+        *list(itervalues(provider["auth"]))
     )
 )(provider["provider"]["name"])
