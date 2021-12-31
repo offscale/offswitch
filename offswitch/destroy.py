@@ -1,28 +1,28 @@
 from __future__ import print_function
 
-from os import environ
-from json import loads
-from itertools import chain
 from collections import namedtuple
-from operator import itemgetter, methodcaller
+from itertools import chain
+from json import loads
+from operator import itemgetter
+from os import environ
 from sys import version
 
 from offutils.util import iteritems, itervalues
 
 if version[0] == "2":
-    from itertools import imap as map, ifilter as filter
+    from itertools import ifilter as filter
+    from itertools import imap as map
+
     from urlparse import urlparse
 else:
     from urllib.parse import urlparse
 
+import etcd3
 from libcloud import security
 from libcloud.common.softlayer import SoftLayerException
 from libcloud.common.types import InvalidCredsError, LibcloudError
-from libcloud.compute.types import Provider
 from libcloud.compute.providers import get_driver
-
-import etcd3
-
+from libcloud.compute.types import Provider
 from offconf import replace_variables
 from offutils import flatten, it_consumes, pp, raise_f
 

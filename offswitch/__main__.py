@@ -1,10 +1,12 @@
-from os import path
-from functools import partial
 from argparse import ArgumentParser
+from functools import partial
+from os import path
+
 from pkg_resources import resource_filename
 
-from .destroy import destroy
 from offswitch import __version__
+
+from .destroy import destroy
 
 config_join = partial(path.join, path.dirname(__file__), "config")
 
