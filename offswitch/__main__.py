@@ -12,6 +12,12 @@ config_join = partial(path.join, path.dirname(__file__), "config")
 
 
 def _build_parser():
+    """
+    CLI parser builder using builtin `argparse` module
+
+    :returns: instanceof ArgumentParser
+    :rtype: ```ArgumentParser```
+    """
     parser = ArgumentParser(description="Destroy compute nodes")
     parser.add_argument(
         "-s",

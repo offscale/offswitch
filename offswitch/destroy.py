@@ -35,6 +35,21 @@ elif environ.get("disable_ssl"):
 
 
 def destroy(config_filename, restrict_provider_to=None, delete_only=None):
+    """
+    Destroy the node (using Apache Libcloud)
+
+    :param config_filename: strategy file, defaults to providers.sample.json
+    :type config_filename: ```str``
+
+    :param restrict_provider_to: Only switch off these providers.
+    :type restrict_provider_to: ```Iterator[str]```
+
+    :param delete_only: Only switch off these names.
+    :type delete_only: ```Iterator[str]```
+
+    :return: The etcd3 client used to delete the node (good for debugging!)
+    :rtype: ```etcd3.client```
+    """
     with open(config_filename, "rt") as f:
         config_contents = f.read()
 
@@ -176,7 +191,7 @@ def destroy(config_filename, restrict_provider_to=None, delete_only=None):
                     client.delete(key)
                     logger.info("rm {!s}".format(key))
             except KeyError as e:
-                logger.error('"{!s}" not found'.format(e.message))
+                logger.error('"{!s}" not found'.format(e))
         remove_empty_dirs(client)
         exit()
 
@@ -276,3 +291,5 @@ to_driver_obj = lambda provider: (
         *list(itervalues(provider["auth"]))
     )
 )(provider["provider"]["name"])
+
+__all__ = ["destroy"]
