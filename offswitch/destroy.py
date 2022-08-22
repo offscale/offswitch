@@ -23,7 +23,7 @@ from libcloud.common.softlayer import SoftLayerException
 from libcloud.common.types import InvalidCredsError, LibcloudError
 from libcloud.compute.providers import get_driver
 from libcloud.compute.types import Provider
-from offconf import replace_variables
+from offconf import parse
 from offutils import flatten, it_consumes, pp, raise_f
 
 from .__init__ import logger
@@ -53,7 +53,7 @@ def destroy(config_filename, restrict_provider_to=None, delete_only=None):
     with open(config_filename, "rt") as f:
         config_contents = f.read()
 
-    config_dict = loads(replace_variables(config_contents))
+    config_dict = loads(parse(config_contents))
     del config_contents
 
     providers = (
