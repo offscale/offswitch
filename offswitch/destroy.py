@@ -23,7 +23,6 @@ from libcloud.common.softlayer import SoftLayerException
 from libcloud.common.types import InvalidCredsError, LibcloudError
 from libcloud.compute.providers import get_driver
 from libcloud.compute.types import Provider
-
 from offconf import parse
 from offutils import flatten, it_consumes, pp, raise_f
 
