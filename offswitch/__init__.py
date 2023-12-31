@@ -8,6 +8,7 @@ import yaml
 
 __author__ = "Samuel Marks"
 __version__ = "0.0.10-alpha1"
+__description__ = "Configuration based deprovisioning tool with Apache Libcloud"
 
 
 def get_logger(name=None):
